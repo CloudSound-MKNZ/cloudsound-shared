@@ -72,6 +72,12 @@ class AppSettings(BaseSettings):
     admin_management_url: str = "http://localhost:8005"
     authentication_url: str = "http://localhost:8006"
     analytics_url: str = "http://localhost:8007"
+    
+    # Facebook API
+    facebook_access_token: Optional[str] = None
+    facebook_page_ids: str = ""  # Comma-separated page IDs
+    facebook_api_version: str = "v24.0"
+    facebook_poll_interval_minutes: int = 30
 
 # Global settings instance
 app_settings = AppSettings()
