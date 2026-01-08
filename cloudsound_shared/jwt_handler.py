@@ -66,7 +66,13 @@ def verify_token(token: str) -> Optional[TokenData]:
         tenant_id: Optional[str] = payload.get("tenant_id")
         
         if user_id is None or email is None or role is None:
-            logger.warning("token_missing_required_fields")
+            logger.warning(
+                "token_missing_required_fields",
+                has_user_id=user_id is not None,
+                has_email=email is not None,
+                has_role=role is not None,
+                payload_keys=list(payload.keys()),
+            )
             return None
         
         token_data = TokenData(
@@ -76,10 +82,15 @@ def verify_token(token: str) -> Optional[TokenData]:
             tenant_id=tenant_id,
         )
         
-        logger.debug("token_verified", user_id=user_id)
+        logger.debug("token_verified", user_id=user_id, role=role)
         return token_data
         
     except JWTError as e:
-        logger.warning("token_verification_failed", error=str(e))
+        logger.warning(
+            "token_verification_failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            secret_key_prefix=app_settings.secret_key[:10] + "...",
+        )
         return None
 
