@@ -3,10 +3,40 @@ from kafka import KafkaProducer, KafkaConsumer
 from kafka.errors import KafkaError
 import json
 import structlog
+import os
 from typing import Optional, Dict, Any, List
 from cloudsound_shared.config.settings import app_settings
 
 logger = structlog.get_logger(__name__)
+
+def _get_kafka_config() -> Dict[str, Any]:
+    """Get Kafka configuration, supporting both regular Kafka and Azure Event Hubs."""
+    config = {}
+    
+    # Check for Azure Event Hubs SASL configuration
+    security_protocol = os.getenv('KAFKA_SECURITY_PROTOCOL', '').upper()
+    sasl_mechanism = os.getenv('KAFKA_SASL_MECHANISM', '').upper()
+    sasl_username = os.getenv('KAFKA_SASL_USERNAME', '')
+    sasl_password = os.getenv('KAFKA_SASL_PASSWORD', '')
+    
+    # Azure Event Hubs uses SASL_SSL with PLAIN mechanism
+    if security_protocol == 'SASL_SSL' and sasl_mechanism == 'PLAIN':
+        config['security_protocol'] = 'SASL_SSL'
+        config['sasl_mechanism'] = 'PLAIN'
+        config['sasl_plain_username'] = sasl_username or '$ConnectionString'
+        config['sasl_plain_password'] = sasl_password
+        logger.info("kafka_config_azure_event_hubs", security_protocol=security_protocol)
+    elif security_protocol or sasl_mechanism:
+        # Other SASL configurations
+        config['security_protocol'] = security_protocol
+        if sasl_mechanism:
+            config['sasl_mechanism'] = sasl_mechanism
+        if sasl_username:
+            config['sasl_plain_username'] = sasl_username
+        if sasl_password:
+            config['sasl_plain_password'] = sasl_password
+    
+    return config
 
 class KafkaProducerClient:
     """Kafka producer client wrapper."""
@@ -18,14 +48,19 @@ class KafkaProducerClient:
     def connect(self) -> None:
         """Initialize Kafka producer."""
         try:
-            self.producer = KafkaProducer(
-                bootstrap_servers=self.bootstrap_servers,
-                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                key_serializer=lambda k: k.encode('utf-8') if k else None,
-                acks='all',  # Wait for all replicas
-                retries=3,
-                max_in_flight_requests_per_connection=1,
-            )
+            producer_config = {
+                'bootstrap_servers': self.bootstrap_servers,
+                'value_serializer': lambda v: json.dumps(v).encode('utf-8'),
+                'key_serializer': lambda k: k.encode('utf-8') if k else None,
+                'acks': 'all',  # Wait for all replicas
+                'retries': 3,
+                'max_in_flight_requests_per_connection': 1,
+            }
+            
+            # Add SASL configuration if needed (for Azure Event Hubs)
+            producer_config.update(_get_kafka_config())
+            
+            self.producer = KafkaProducer(**producer_config)
             logger.info("kafka_producer_connected", servers=self.bootstrap_servers)
         except Exception as e:
             logger.error("kafka_producer_connection_failed", error=str(e))
@@ -69,15 +104,19 @@ class KafkaConsumerClient:
     def connect(self) -> None:
         """Initialize Kafka consumer."""
         try:
-            self.consumer = KafkaConsumer(
-                *self.topics,
-                bootstrap_servers=self.bootstrap_servers,
-                group_id=self.group_id,
-                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-                key_deserializer=lambda k: k.decode('utf-8') if k else None,
-                auto_offset_reset=self.auto_offset_reset,
-                enable_auto_commit=True,
-            )
+            consumer_config = {
+                'bootstrap_servers': self.bootstrap_servers,
+                'group_id': self.group_id,
+                'value_deserializer': lambda m: json.loads(m.decode('utf-8')),
+                'key_deserializer': lambda k: k.decode('utf-8') if k else None,
+                'auto_offset_reset': self.auto_offset_reset,
+                'enable_auto_commit': True,
+            }
+            
+            # Add SASL configuration if needed (for Azure Event Hubs)
+            consumer_config.update(_get_kafka_config())
+            
+            self.consumer = KafkaConsumer(*self.topics, **consumer_config)
             logger.info(
                 "kafka_consumer_connected",
                 topics=self.topics,
