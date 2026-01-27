@@ -25,6 +25,11 @@ def _get_kafka_config() -> Dict[str, Any]:
         config['sasl_mechanism'] = 'PLAIN'
         config['sasl_plain_username'] = sasl_username or '$ConnectionString'
         config['sasl_plain_password'] = sasl_password
+        # Azure Event Hubs requires explicit API version
+        config['api_version'] = (0, 10, 1)
+        # SSL configuration for Event Hubs
+        config['ssl_check_hostname'] = True
+        config['ssl_cafile'] = None  # Use system CA certificates
         logger.info("kafka_config_azure_event_hubs", security_protocol=security_protocol)
     elif security_protocol or sasl_mechanism:
         # Other SASL configurations
